@@ -120,7 +120,7 @@ static dispatch_queue_t YYAsyncLayerGetReleaseQueue() {
         if (task.willDisplay) task.willDisplay(self);
         YYSentinel *sentinel = _sentinel;
         int32_t value = sentinel.value;
-        BOOL (^isCancelled)() = ^BOOL() {
+        BOOL (^isCancelled)(void) = ^BOOL() {
             return value != sentinel.value;
         };
         CGSize size = self.bounds.size;
@@ -188,72 +188,71 @@ static dispatch_queue_t YYAsyncLayerGetReleaseQueue() {
             });
         });
     } else {
-      [_sentinel increase];
-  if (task.willDisplay) task.willDisplay(self);
+        [_sentinel increase];
+        if (task.willDisplay) task.willDisplay(self);
 
-CGSize size = self.bounds.size;
-BOOL opaque = self.opaque;
-CGFloat scale = self.contentsScale;
-if (@available(iOS 10.0, *)) {
-    // 使用 UIGraphicsImageRenderer 进行绘制
-    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
-    format.opaque = opaque;
-    format.scale = scale;
+        CGSize size = self.bounds.size;
+        BOOL opaque = self.opaque;
+        CGFloat scale = self.contentsScale;
+        if (@available(iOS 10.0, *)) {
+            // 使用 UIGraphicsImageRenderer 进行绘制
+            UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+            format.opaque = opaque;
+            format.scale = scale;
 
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size format:format];
+            UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size format:format];
 
-    UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        CGContextRef context = rendererContext.CGContext;
-        if (opaque) {
-            CGSize scaledSize = self.bounds.size;
-            scaledSize.width *= self.contentsScale;
-            scaledSize.height *= self.contentsScale;
-            CGContextSaveGState(context); {
-                if (!self.backgroundColor || CGColorGetAlpha(self.backgroundColor) < 1) {
-                    CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
-                    CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
-                    CGContextFillPath(context);
+            UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
+                CGContextRef context = rendererContext.CGContext;
+                if (opaque) {
+                    CGSize scaledSize = self.bounds.size;
+                    scaledSize.width *= self.contentsScale;
+                    scaledSize.height *= self.contentsScale;
+                    CGContextSaveGState(context); {
+                        if (!self.backgroundColor || CGColorGetAlpha(self.backgroundColor) < 1) {
+                            CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
+                            CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
+                            CGContextFillPath(context);
+                        }
+                        if (self.backgroundColor) {
+                            CGContextSetFillColorWithColor(context, self.backgroundColor);
+                            CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
+                            CGContextFillPath(context);
+                        }
+                    } CGContextRestoreGState(context);
                 }
-                if (self.backgroundColor) {
-                    CGContextSetFillColorWithColor(context, self.backgroundColor);
-                    CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
-                    CGContextFillPath(context);
-                }
-            } CGContextRestoreGState(context);
+                task.display(context, self.bounds.size, ^{return NO;});
+            }];
+
+            self.contents = (__bridge id)(image.CGImage);
+        } else {
+            // 使用 UIGraphicsBeginImageContextWithOptions 进行绘制
+            UIGraphicsBeginImageContextWithOptions(size, opaque, scale);
+            CGContextRef context = UIGraphicsGetCurrentContext();
+            if (opaque) {
+                CGSize scaledSize = self.bounds.size;
+                scaledSize.width *= self.contentsScale;
+                scaledSize.height *= self.contentsScale;
+                CGContextSaveGState(context); {
+                    if (!self.backgroundColor || CGColorGetAlpha(self.backgroundColor) < 1) {
+                        CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
+                        CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
+                        CGContextFillPath(context);
+                    }
+                    if (self.backgroundColor) {
+                        CGContextSetFillColorWithColor(context, self.backgroundColor);
+                        CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
+                        CGContextFillPath(context);
+                    }
+                } CGContextRestoreGState(context);
+            }
+            task.display(context, self.bounds.size, ^{return NO;});
+            UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+
+            self.contents = (__bridge id)(image.CGImage);
         }
-        task.display(context, self.bounds.size, ^{return NO;});
-    }];
-
-    self.contents = (__bridge id)(image.CGImage);
-} else {
-    // 使用 UIGraphicsBeginImageContextWithOptions 进行绘制
-    UIGraphicsBeginImageContextWithOptions(size, opaque, scale);
-    CGContextRef context = UIGraphicsGetCurrentContext();
-    if (opaque) {
-        CGSize scaledSize = self.bounds.size;
-        scaledSize.width *= self.contentsScale;
-        scaledSize.height *= self.contentsScale;
-        CGContextSaveGState(context); {
-            if (!self.backgroundColor || CGColorGetAlpha(self.backgroundColor) < 1) {
-                CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
-                CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
-                CGContextFillPath(context);
-            }
-            if (self.backgroundColor) {
-                CGContextSetFillColorWithColor(context, self.backgroundColor);
-                CGContextAddRect(context, CGRectMake(0, 0, scaledSize.width, scaledSize.height));
-                CGContextFillPath(context);
-            }
-        } CGContextRestoreGState(context);
-    }
-    task.display(context, self.bounds.size, ^{return NO;});
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-
-    self.contents = (__bridge id)(image.CGImage);
-}
-
-if (task.didDisplay) task.didDisplay(self, YES);
+        if (task.didDisplay) task.didDisplay(self, YES);
     }
 }
 
